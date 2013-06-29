@@ -1,5 +1,3 @@
-/*-*- Mode: C; c-basic-offset: 8; indent-tabs-mode: t -*-*/
-
 /**
  * qrencode - QR Code encoder
  *
@@ -41,6 +39,7 @@ static int size = 3;
 static int margin = -1;
 static int dpi = 72;
 static int structured = 0;
+static int rle = 0;
 static int micro = 0;
 static QRecLevel level = QR_ECLEVEL_L;
 static QRencodeMode hint = QR_MODE_8;
@@ -75,6 +74,7 @@ static const struct option options[] = {
 	{"casesensitive", no_argument      , NULL, 'c'},
 	{"ignorecase"   , no_argument      , NULL, 'i'},
 	{"8bit"         , no_argument      , NULL, '8'},
+	{"rle"          , no_argument      , &rle,   1},
 	{"micro"        , no_argument      , NULL, 'M'},
 	{"foreground"	, required_argument, NULL, 'f'},
 	{"background"	, required_argument, NULL, 'b'},
@@ -123,9 +123,10 @@ static void usage(int help, int longopt)
 "  -i, --ignorecase\n"
 "               ignore case distinctions and use only upper-case characters.\n\n"
 "  -8, --8bit   encode entire data in 8-bit mode. -k, -c and -i will be ignored.\n\n"
+"      --rle    enable run-length encoding for SVG.\n\n"
 "  -M, --micro  encode in a Micro QR Code. (experimental)\n\n"
-"  --foreground=RRGGBB[AA]\n"
-"  --background=RRGGBB[AA]\n"
+"      --foreground=RRGGBB[AA]\n"
+"      --background=RRGGBB[AA]\n"
 "               specify foreground/background color in hexadecimal notation.\n"
 "               6-digit (RGB) or 8-digit (RGBA) form are supported.\n"
 "               Color output support available only in PNG and SVG.\n"
@@ -480,25 +481,35 @@ static int writeSVG( QRcode *qrcode, const char *outfile )
 	for(y=0; y<qrcode->width; y++) {
 		row = (p+(y*qrcode->width));
 
-		/* simple RLE */
-		pen = 0;
-		x0  = 0;
-		for(x=0; x<qrcode->width; x++) {
-			if( !pen ) {
-				pen = *(row+x)&0x1;
-				x0 = x;
-			} else {
-				if(!(*(row+x)&0x1)) {
-					writeSVG_writeRect(fp, x0 + margin, y + margin, x-x0, fg, fg_opacity);
-					pen = 0;
+		if( !rle ) {
+			/* no RLE */
+			for(x=0; x<qrcode->width; x++) {
+				if(*(row+x)&0x1) {
+					writeSVG_writeRect(fp,	margin + x,
+								margin + y, 1,
+								fg, fg_opacity);
 				}
 			}
-		}
-		if( pen ) {
-			writeSVG_writeRect(fp, x0 + margin, y + margin, qrcode->width - x0, fg, fg_opacity);
+		} else {
+			/* simple RLE */
+			pen = 0;
+			x0  = 0;
+			for(x=0; x<qrcode->width; x++) {
+				if( !pen ) {
+					pen = *(row+x)&0x1;
+					x0 = x;
+				} else {
+					if(!(*(row+x)&0x1)) {
+						writeSVG_writeRect(fp, x0 + margin, y + margin, x-x0, fg, fg_opacity);
+						pen = 0;
+					}
+				}
+			}
+			if( pen ) {
+				writeSVG_writeRect(fp, x0 + margin, y + margin, qrcode->width - x0, fg, fg_opacity);
+			}
 		}
 	}
-
 	/* Close QR data viewbox */
 	fputs( "\t\t</g>\n", fp );
 
@@ -1062,6 +1073,9 @@ int main(int argc, char **argv)
 			case '8':
 				eightbit = 1;
 				break;
+			case 'r':
+				rle = 1;
+				break;
 			case 'M':
 				micro = 1;
 				break;
@@ -1080,6 +1094,8 @@ int main(int argc, char **argv)
 			case 'V':
 				usage(0, 0);
 				exit(EXIT_SUCCESS);
+				break;
+			case 0:
 				break;
 			default:
 				fprintf(stderr, "Try `qrencode --help' for more information.\n");
